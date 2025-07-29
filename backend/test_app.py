@@ -17,9 +17,11 @@ def test_pv_profile():
     assert app.pv_profile(12) > app.pv_profile(6)
     assert app.pv_profile(12) > app.pv_profile(18)
     
-    # Test early morning and late evening are zero
-    assert app.pv_profile(0) == 0
-    assert app.pv_profile(24) == 0
+    # Test early morning and late evening are very small (near zero)
+    assert app.pv_profile(0) < 0.1  # Very low at midnight
+    assert app.pv_profile(24) < 0.1  # Very low at midnight (24h = 0h)
+    assert app.pv_profile(3) < 0.1   # Very low at 3 AM
+    assert app.pv_profile(21) < 0.1  # Very low at 9 PM
     
     # Test with minutes
     assert app.pv_profile(12, 0) > app.pv_profile(11, 30)

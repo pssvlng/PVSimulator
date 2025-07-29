@@ -236,6 +236,76 @@ The CSV file contains the following columns:
 - `pv`: PV production in kW (bell curve, 0-8)
 - `sum`: Total power (meter + pv) in kW
 
+## Accessing Simulation Data
+
+### CSV File Location
+The simulation data is stored in a CSV file inside the Docker container at `/app/results.csv`.
+
+### Method 1: View Data Inside Container
+```bash
+# View the entire CSV file
+docker exec -it pv-backend cat /app/results.csv
+
+# View first 10 lines (including header)
+docker exec -it pv-backend head -10 /app/results.csv
+
+# View last 10 lines (most recent data)
+docker exec -it pv-backend tail -10 /app/results.csv
+
+# Follow the file in real-time as new data is added
+docker exec -it pv-backend tail -f /app/results.csv
+
+# Check file size and info
+docker exec -it pv-backend ls -lh /app/results.csv
+
+# Count total number of data rows
+docker exec -it pv-backend wc -l /app/results.csv
+```
+
+### Method 2: Copy File to Host Machine
+```bash
+# Copy CSV file from container to your local directory
+docker cp pv-backend:/app/results.csv ./simulation_data.csv
+
+# Then view it locally
+cat ./simulation_data.csv
+head -10 ./simulation_data.csv
+tail -10 ./simulation_data.csv
+```
+
+### Method 3: Interactive Container Access
+```bash
+# Get a shell inside the container
+docker exec -it pv-backend /bin/bash
+
+# Navigate and explore (you're now inside the container)
+ls -la /app/
+cat results.csv
+tail -f results.csv  # Watch real-time data updates
+exit  # Leave the container
+```
+
+### Method 4: Using API Endpoints
+You can also access the data through the REST API:
+```bash
+# Get all simulation data
+curl http://localhost:5000/results
+
+# Get latest 50 data points
+curl http://localhost:5000/results/latest
+
+# Check simulation status
+curl http://localhost:5000/status
+```
+
+### Sample CSV Data
+```csv
+timestamp,meter,pv,sum
+2025-07-29T11:30:15.123456,5.67,3.21,8.88
+2025-07-29T11:30:18.654321,4.32,3.18,7.50
+2025-07-29T11:30:21.789012,6.89,3.15,10.04
+```
+
 ## Technical Details
 
 ### PV Profile
