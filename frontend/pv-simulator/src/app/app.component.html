@@ -1,0 +1,49 @@
+<div class="container">
+  <header class="header">
+    <h1>PV Simulator</h1>
+    <div class="status-indicator" [ngClass]="{'running': isRunning, 'stopped': !isRunning}">
+      {{ isRunning ? 'Running' : 'Stopped' }}
+    </div>
+  </header>
+
+  <div class="content">
+    <div class="controls-section">
+      <app-control 
+        [isRunning]="isRunning" 
+        (startEvent)="onStart()" 
+        (stopEvent)="onStop()">
+      </app-control>
+    </div>
+
+    <div class="chart-section">
+      <app-chart [data]="chartData"></app-chart>
+    </div>
+
+    <div class="info-section">
+      <div class="info-card">
+        <h3>Latest Values</h3>
+        <div class="values" *ngIf="latestData">
+          <div class="value-item">
+            <span class="label">Timestamp:</span>
+            <span class="value">{{ latestData.timestamp | date:'short' }}</span>
+          </div>
+          <div class="value-item">
+            <span class="label">Meter Reading:</span>
+            <span class="value">{{ latestData.meter | number:'1.2-2' }} kW</span>
+          </div>
+          <div class="value-item">
+            <span class="label">PV Production:</span>
+            <span class="value">{{ latestData.pv | number:'1.2-2' }} kW</span>
+          </div>
+          <div class="value-item">
+            <span class="label">Net Power:</span>
+            <span class="value">{{ latestData.sum | number:'1.2-2' }} kW</span>
+          </div>
+        </div>
+        <div *ngIf="!latestData" class="no-data">
+          No data available
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
