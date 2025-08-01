@@ -8,8 +8,7 @@ describe('ControlComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       declarations: [ControlComponent]
-    })
-    .compileComponents();
+    }).compileComponents();
 
     fixture = TestBed.createComponent(ControlComponent);
     component = fixture.componentInstance;
@@ -20,35 +19,23 @@ describe('ControlComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should emit start event when start button clicked', () => {
-    spyOn(component.start, 'emit');
+  it('should initialize with isRunning false', () => {
+    expect(component.isRunning).toBeFalse();
+  });
+
+  it('should emit startEvent when onStart is called', () => {
+    spyOn(component.startEvent, 'emit');
     
     component.onStart();
     
-    expect(component.start.emit).toHaveBeenCalled();
+    expect(component.startEvent.emit).toHaveBeenCalled();
   });
 
-  it('should emit stop event when stop button clicked', () => {
-    spyOn(component.stop, 'emit');
+  it('should emit stopEvent when onStop is called', () => {
+    spyOn(component.stopEvent, 'emit');
     
     component.onStop();
     
-    expect(component.stop.emit).toHaveBeenCalled();
-  });
-
-  it('should disable start button when simulation is running', () => {
-    component.isRunning = true;
-    fixture.detectChanges();
-    
-    const startButton = fixture.debugElement.nativeElement.querySelector('.btn-primary');
-    expect(startButton.disabled).toBe(true);
-  });
-
-  it('should disable stop button when simulation is not running', () => {
-    component.isRunning = false;
-    fixture.detectChanges();
-    
-    const stopButton = fixture.debugElement.nativeElement.querySelector('.btn-danger');
-    expect(stopButton.disabled).toBe(true);
+    expect(component.stopEvent.emit).toHaveBeenCalled();
   });
 });

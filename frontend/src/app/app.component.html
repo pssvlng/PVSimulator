@@ -10,8 +10,8 @@
     <div class="controls-section">
       <app-control 
         [isRunning]="isRunning" 
-        (startEvent)="onStart()" 
-        (stopEvent)="onStop()">
+        (start)="startSimulation()" 
+        (stop)="stopSimulation()">
       </app-control>
     </div>
 

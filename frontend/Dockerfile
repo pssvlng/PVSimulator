@@ -3,14 +3,14 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files from pv-simulator directory
-COPY pv-simulator/package*.json ./
+# Copy package files
+COPY package*.json ./
 
 # Install dependencies
 RUN npm ci
 
-# Copy source code from pv-simulator directory
-COPY pv-simulator/ .
+# Copy source code
+COPY . .
 
 # Build the application
 RUN npm run build
@@ -22,7 +22,7 @@ FROM nginx:alpine
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # Copy built application
-COPY --from=builder /app/dist/pv-simulator /usr/share/nginx/html
+COPY --from=builder /app/dist/pv-simulator-frontend /usr/share/nginx/html
 
 # Expose port
 EXPOSE 80

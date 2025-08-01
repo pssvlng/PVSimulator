@@ -20,7 +20,7 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
   `
 })
 export class ControlComponent {
-  @Input() isRunning: boolean = false;
+  @Input() isRunning = false;
   @Output() start = new EventEmitter<void>();
   @Output() stop = new EventEmitter<void>();
 

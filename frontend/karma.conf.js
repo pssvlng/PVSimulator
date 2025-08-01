@@ -25,7 +25,7 @@ module.exports = function (config) {
       suppressAll: true // removes the duplicated traces
     },
     coverageReporter: {
-      dir: require('path').join(__dirname, './coverage/pv-simulator'),
+      dir: require('path').join(__dirname, './coverage/pv-simulator-frontend'),
       subdir: '.',
       reporters: [
         { type: 'html' },

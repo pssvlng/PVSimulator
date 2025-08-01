@@ -53,21 +53,30 @@ Meter → RabbitMQ → PV Simulator → CSV File → REST API → Frontend Chart
 
 ```
 PVSimulator/
-├── backend/                 # Python Flask application
-│   ├── app.py              # Main application
-│   ├── test_app.py         # Unit tests
+├── backend/                 # Python Flask application (modular architecture)
+│   ├── app.py              # Main application entry point
+│   ├── config.py           # Configuration settings
+│   ├── models.py           # Pydantic data models
+│   ├── utilities.py        # Utility functions (PV calculations, CSV handling)
+│   ├── simulation_manager.py # Simulation control logic
+│   ├── logging_config.py   # Logging setup
+│   ├── __init__.py         # Package initialization
+│   ├── test_app.py         # Comprehensive unit tests
 │   ├── requirements.txt    # Python dependencies
 │   ├── pyproject.toml      # Python project config
 │   └── Dockerfile          # Backend container
 ├── frontend/               # Angular application
-│   ├── src/
+│   ├── src/                # Angular project source
 │   │   ├── app/
 │   │   │   ├── components/ # Angular components
+│   │   │   │   ├── chart/  # Chart visualization
+│   │   │   │   └── control/ # Control panel
 │   │   │   ├── services/   # Angular services
+│   │   │   │   └── *.spec.ts   # Unit test files
 │   │   │   └── ...
-│   │   └── ...
-│   ├── package.json        # Node.js dependencies
-│   ├── angular.json        # Angular configuration
+│   │   ├── package.json    # Node.js dependencies
+│   │   ├── angular.json    # Angular configuration
+│   │   └── karma.conf.js   # Test configuration
 │   ├── Dockerfile          # Frontend container
 │   └── nginx.conf          # Nginx configuration
 ├── docker-compose.yml      # Service orchestration
@@ -168,17 +177,45 @@ PVSimulator/
 
 ### Testing
 
-#### Backend Tests
+#### Backend Tests (Comprehensive Unit Tests)
 ```bash
+# Run all backend tests
 cd backend
 pytest test_app.py -v
+
+# Run with coverage report
+pytest test_app.py -v --cov=. --cov-report=html
 ```
 
-#### Frontend Tests
+**Backend Test Coverage:**
+- ✅ Modular architecture testing (config, models, utilities, simulation manager)
+- ✅ API endpoint testing (start, stop, status, results)
+- ✅ PV calculation validation
+- ✅ CSV data handling
+- ✅ Error handling scenarios
+- ✅ Pydantic model validation
+
+#### Frontend Tests (Angular/TypeScript Unit Tests)
 ```bash
+# Run frontend tests (requires browser environment)
 cd frontend
 npm test
+
+# Alternative: Build validation (verifies TypeScript compilation)
+npm run build
+
+# TypeScript compilation check for tests
+npx tsc --noEmit --project tsconfig.spec.json
 ```
+
+**Frontend Test Coverage:**
+- ✅ App component logic and lifecycle
+- ✅ Simulator service HTTP communication
+- ✅ Control component event handling
+- ✅ Chart component data input validation
+- ✅ Service mocking and error scenarios
+
+**Note:** Frontend browser tests require Chrome/Firefox. In headless environments, use `npm run build` to validate TypeScript compilation and component structure.
 
 ## API Endpoints
 
@@ -206,7 +243,7 @@ python app.py
 
 #### Frontend Development
 ```bash
-cd frontend/pv-simulator
+cd frontend
 npm install
 ng serve
 ```
@@ -330,11 +367,18 @@ pv = max(0, 8 * exp(-((hour - 12)²) / 18))
 
 ## Development Notes
 
-- **Good Architecture**: Separation of concerns with services, components, and clear API boundaries
-- **Testing**: Comprehensive unit tests for both backend and frontend
-- **Error Handling**: Graceful error handling and user feedback
-- **Responsive Design**: Mobile-friendly interface
-- **Production Ready**: Docker containers with health checks and proper configurations
+- **Modular Architecture**: Backend refactored into separate modules for better maintainability:
+  - `config.py`: Centralized configuration management
+  - `models.py`: Pydantic data validation models
+  - `utilities.py`: Pure functions for PV calculations and CSV operations
+  - `simulation_manager.py`: Business logic for simulation control
+  - `logging_config.py`: Structured logging setup
+- **Clean Code**: Separation of concerns with services, components, and clear API boundaries
+- **Comprehensive Testing**: Unit tests for both backend (pytest) and frontend (Jasmine/Karma)
+- **Type Safety**: TypeScript frontend and Pydantic backend models ensure type safety
+- **Error Handling**: Graceful error handling and user feedback throughout the application
+- **Responsive Design**: Mobile-friendly Angular interface with Chart.js visualization
+- **Production Ready**: Docker containers with health checks, proper configurations, and Nginx proxy
 
 ## Troubleshooting
 

@@ -1,174 +1,234 @@
 import os
-import threading
+import sys
+import signal
+import atexit
 import time
-import json
 import csv
 from datetime import datetime
+
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
-import pika
-import numpy as np
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 
+from config import config
+from models import MeterReading, PVData
+from utils import get_rabbitmq_connection
+from simulation import SimulationManager
+from logging_config import setup_logging
+
+# Ensure data directory exists
+os.makedirs(config.DATA_DIR, exist_ok=True)
+os.makedirs('logs', exist_ok=True)
+
+# Configure logging
+logger = setup_logging()
+
+# Flask app setup
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 CORS(app)
 
-RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'localhost')
-RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'user')
-RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'password')
-METER_QUEUE = 'meter_queue'
-RESULTS_FILE = 'results.csv'
+# Rate limiting
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"]
+)
 
-# Global simulation state
-simulation_running = False
-meter_thread_obj = None
-pv_thread_obj = None
+start_time = time.time()
 
-# Helper: Bell curve for PV simulation
-def pv_profile(hour, minute=0):
-    # Simulate PV output as a bell curve (Gaussian) with more realistic curve
-    time_decimal = hour + minute / 60.0
-    peak_hour = 12.0  # Solar noon
-    return max(0, 8 * np.exp(-((time_decimal - peak_hour)**2) / 18))
+# Initialize simulation manager
+simulation_manager = SimulationManager()
 
-# Meter thread: sends random values to RabbitMQ
-def meter_thread():
-    global simulation_running
-    try:
-        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
-        channel = connection.channel()
-        channel.queue_declare(queue=METER_QUEUE, durable=True)
-        
-        while simulation_running:
-            value = round(np.random.uniform(0.5, 10.0), 2)
-            timestamp = datetime.now().isoformat()
-            msg = json.dumps({'timestamp': timestamp, 'meter': value})
-            channel.basic_publish(exchange='', routing_key=METER_QUEUE, body=msg, 
-                                properties=pika.BasicProperties(delivery_mode=2))
-            time.sleep(3)  # Send data every 3 seconds
-            
-        connection.close()
-    except Exception as e:
-        print(f"Meter thread error: {e}")
+# Graceful shutdown
+def shutdown_handler(signum, frame):
+    logger.info("Received shutdown signal, stopping simulation...")
+    simulation_manager.stop()
+    sys.exit(0)
 
-# PV Simulator thread: listens for meter values, calculates PV, writes results
-def pv_simulator_thread():
-    global simulation_running
-    try:
-        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
-        channel = connection.channel()
-        channel.queue_declare(queue=METER_QUEUE, durable=True)
-        
-        # Initialize CSV file with headers if not exists
-        if not os.path.exists(RESULTS_FILE):
-            with open(RESULTS_FILE, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['timestamp', 'meter', 'pv', 'sum'])
-        
-        def callback(ch, method, properties, body):
-            if not simulation_running:
-                return
-                
-            data = json.loads(body)
-            timestamp = data['timestamp']
-            meter = float(data['meter'])
-            
-            # Calculate PV based on current time
-            current_time = datetime.fromisoformat(timestamp)
-            hour = current_time.hour
-            minute = current_time.minute
-            pv = round(pv_profile(hour, minute), 2)
-            
-            # Sum values (meter consumption + PV production)
-            total = round(meter + pv, 2)
-            
-            # Write to CSV
-            with open(RESULTS_FILE, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([timestamp, meter, pv, total])
-            
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-        
-        channel.basic_consume(queue=METER_QUEUE, on_message_callback=callback)
-        
-        while simulation_running:
-            connection.process_data_events(time_limit=1)
-            
-        connection.close()
-    except Exception as e:
-        print(f"PV simulator thread error: {e}")
+signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
+atexit.register(lambda: simulation_manager.stop())
 
 # API endpoints
 @app.route('/start', methods=['POST'])
+@limiter.limit("5 per minute")
 def start_simulation():
-    global simulation_running, meter_thread_obj, pv_thread_obj
+    """Start the PV simulation"""
+    if simulation_manager.is_running:
+        return jsonify({'status': 'already running', 'running': True}), 200
     
-    if simulation_running:
-        return jsonify({'status': 'already running', 'running': True})
-    
-    simulation_running = True
-    meter_thread_obj = threading.Thread(target=meter_thread, daemon=True)
-    pv_thread_obj = threading.Thread(target=pv_simulator_thread, daemon=True)
-    
-    meter_thread_obj.start()
-    pv_thread_obj.start()
-    
-    return jsonify({'status': 'started', 'running': True})
+    try:
+        success = simulation_manager.start()
+        if success:
+            return jsonify({'status': 'started', 'running': True}), 200
+        else:
+            return jsonify({'status': 'failed to start', 'running': False}), 500
+    except Exception as e:
+        logger.error(f"Error starting simulation: {e}")
+        return jsonify({'status': 'error', 'message': str(e), 'running': False}), 500
 
 @app.route('/stop', methods=['POST'])
+@limiter.limit("10 per minute")
 def stop_simulation():
-    global simulation_running
-    simulation_running = False
-    return jsonify({'status': 'stopped', 'running': False})
+    """Stop the PV simulation"""
+    try:
+        success = simulation_manager.stop()
+        return jsonify({'status': 'stopped', 'running': False}), 200
+    except Exception as e:
+        logger.error(f"Error stopping simulation: {e}")
+        return jsonify({'status': 'error', 'message': str(e), 'running': simulation_manager.is_running}), 500
 
 @app.route('/status', methods=['GET'])
 def get_status():
-    return jsonify({'running': simulation_running})
+    """Get current simulation status"""
+    return jsonify({
+        'running': simulation_manager.is_running,
+        'uptime': int(time.time() - start_time)
+    })
 
 @app.route('/results', methods=['GET'])
+@limiter.limit("30 per minute")
 def get_results():
-    if not os.path.exists(RESULTS_FILE):
+    """Get all simulation results"""
+    if not os.path.exists(config.RESULTS_FILE):
         return jsonify([])
     
     try:
-        with open(RESULTS_FILE, 'r') as f:
+        with open(config.RESULTS_FILE, 'r') as f:
             reader = csv.DictReader(f)
             results = list(reader)
             
         # Convert string values to float for frontend
         for result in results:
-            result['meter'] = float(result['meter'])
-            result['pv'] = float(result['pv'])
-            result['sum'] = float(result['sum'])
+            try:
+                result['meter'] = float(result['meter'])
+                result['pv'] = float(result['pv'])
+                # Map 'sum' column to 'net' for frontend compatibility
+                if 'sum' in result:
+                    result['net'] = float(result['sum'])
+                elif 'net' in result:
+                    result['net'] = float(result['net'])
+                else:
+                    result['net'] = 0.0  # Fallback value
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Error converting result data: {e}")
+                continue
             
+        logger.info(f"Returned {len(results)} results")
         return jsonify(results)
     except Exception as e:
+        logger.error(f"Error reading results: {e}")
         return jsonify([])
 
 @app.route('/results/latest', methods=['GET'])
+@limiter.limit("60 per minute")
 def get_latest_results():
-    """Get the latest 50 results for real-time chart updates"""
-    if not os.path.exists(RESULTS_FILE):
+    """Get the latest results for real-time chart updates"""
+    if not os.path.exists(config.RESULTS_FILE):
         return jsonify([])
     
     try:
-        with open(RESULTS_FILE, 'r') as f:
+        with open(config.RESULTS_FILE, 'r') as f:
             reader = csv.DictReader(f)
             results = list(reader)
             
-        # Get latest 50 entries
-        latest_results = results[-50:] if len(results) > 50 else results
+        # Get latest entries based on config
+        latest_results = results[-config.MAX_RESULTS_RETURNED:] if len(results) > config.MAX_RESULTS_RETURNED else results
         
         # Convert string values to float for frontend
         for result in latest_results:
-            result['meter'] = float(result['meter'])
-            result['pv'] = float(result['pv'])
-            result['sum'] = float(result['sum'])
+            try:
+                result['meter'] = float(result['meter'])
+                result['pv'] = float(result['pv'])
+                # Map 'sum' column to 'net' for frontend compatibility
+                if 'sum' in result:
+                    result['net'] = float(result['sum'])
+                elif 'net' in result:
+                    result['net'] = float(result['net'])
+                else:
+                    result['net'] = 0.0  # Fallback value
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Error converting result data: {e}")
+                continue
             
         return jsonify(latest_results)
     except Exception as e:
+        logger.error(f"Error reading latest results: {e}")
         return jsonify([])
 
+# Health check and monitoring endpoints
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for container orchestration"""
+    try:
+        # Check RabbitMQ connection
+        connection = get_rabbitmq_connection()
+        connection.close()
+        rabbitmq_status = "healthy"
+    except Exception as e:
+        logger.warning(f"RabbitMQ health check failed: {e}")
+        rabbitmq_status = "unhealthy"
+    
+    # Check file system
+    file_status = "healthy" if os.access(config.DATA_DIR, os.W_OK) else "unhealthy"
+    
+    status = {
+        "status": "healthy" if all([rabbitmq_status == "healthy", file_status == "healthy"]) else "unhealthy",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "rabbitmq": rabbitmq_status,
+            "filesystem": file_status,
+            "simulation": "running" if simulation_manager.is_running else "stopped"
+        }
+    }
+    
+    return jsonify(status), 200 if status["status"] == "healthy" else 503
+
+@app.route('/metrics', methods=['GET'])
+def metrics():
+    """Basic metrics endpoint"""
+    try:
+        file_size = os.path.getsize(config.RESULTS_FILE) if os.path.exists(config.RESULTS_FILE) else 0
+        if os.path.exists(config.RESULTS_FILE):
+            with open(config.RESULTS_FILE, 'r') as f:
+                line_count = sum(1 for _ in f) - 1  # Exclude header
+        else:
+            line_count = 0
+    except Exception as e:
+        logger.warning(f"Error getting metrics: {e}")
+        file_size = 0
+        line_count = 0
+    
+    return jsonify({
+        "simulation_running": simulation_manager.is_running,
+        "data_points": line_count,
+        "file_size_bytes": file_size,
+        "uptime_seconds": int(time.time() - start_time),
+        "config": {
+            "meter_interval": config.METER_INTERVAL,
+            "max_results_returned": config.MAX_RESULTS_RETURNED
+        }
+    })
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    logger.info(f"Starting PV Simulator on {config.FLASK_HOST}:{config.FLASK_PORT}")
+    logger.info(f"Debug mode: {config.FLASK_DEBUG}")
+    logger.info(f"RabbitMQ: {config.RABBITMQ_HOST}:{config.RABBITMQ_PORT}")
+    logger.info(f"Results file: {config.RESULTS_FILE}")
+    
+    try:
+        app.run(
+            host=config.FLASK_HOST, 
+            port=config.FLASK_PORT, 
+            debug=config.FLASK_DEBUG
+        )
+    except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
+        simulation_manager.stop()
+    except Exception as e:
+        logger.error(f"Application error: {e}")
+        simulation_manager.stop()
+        raise

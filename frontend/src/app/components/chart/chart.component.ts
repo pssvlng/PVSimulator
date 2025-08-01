@@ -61,7 +61,7 @@ export class ChartComponent implements OnInit, OnDestroy, OnChanges {
             tension: 0.4
           },
           {
-            label: 'Total (kW)',
+            label: 'Net Power (kW)',
             data: [],
             borderColor: '#28a745',
             backgroundColor: 'rgba(40, 167, 69, 0.1)',
@@ -90,6 +90,9 @@ export class ChartComponent implements OnInit, OnDestroy, OnChanges {
             title: {
               display: true,
               text: 'Time'
+            },
+            ticks: {
+              maxTicksLimit: 10 // Limit number of time labels to avoid crowding
             }
           },
           y: {
@@ -102,7 +105,17 @@ export class ChartComponent implements OnInit, OnDestroy, OnChanges {
           }
         },
         animation: {
-          duration: 750
+          duration: 0 // Disable animations for better real-time performance
+        },
+        interaction: {
+          intersect: false,
+          mode: 'index'
+        },
+        elements: {
+          point: {
+            radius: 2, // Smaller points for cleaner look with many data points
+            hoverRadius: 4
+          }
         }
       } as ChartOptions
     };
@@ -119,11 +132,13 @@ export class ChartComponent implements OnInit, OnDestroy, OnChanges {
       return date.toLocaleTimeString();
     });
 
+    // Update data efficiently
     this.chart.data.labels = labels;
     this.chart.data.datasets[0].data = this.data.map(item => item.meter);
     this.chart.data.datasets[1].data = this.data.map(item => item.pv);
     this.chart.data.datasets[2].data = this.data.map(item => item.sum);
 
+    // Use 'none' animation mode for real-time updates to improve performance
     this.chart.update('none');
   }
 }
