@@ -5,7 +5,13 @@
 This project simulates photovoltaic (PV) power production and household consumption, sums the values, and writes results to disk. The application includes:
 
 - **Python backend (Flask)** for simulation and REST API
-- **Angular frontend** for visualization and control  
+- **Angular fr### Data Format
+
+The CSV file contains the following columns:
+- `timestamp`: ISO format timestamp
+- `meter`: Household consumption in kW (0.5-10.0)
+- `pv`: PV production in kW (bell curve, 0-8, peaks at solar noon)
+- `sum`: Net power calculation (displayed as "Net Power" in frontend)* for visualization and control  
 - **RabbitMQ** as message broker
 - **Docker Compose** for orchestration
 
@@ -116,8 +122,9 @@ PVSimulator/
 
 4. **Using the Application**
    - Open http://localhost:4200 in your web browser
-   - Click **"Start Simulation"** to begin generating data
+   - Click **"Start Simulation"** to begin generating data (single click)
    - Watch the real-time chart update with meter consumption and PV production
+   - View live values in the info panel: Meter Reading, PV Production, and Net Power
    - Click **"Stop Simulation"** to halt data generation
    - Data is automatically saved to CSV and persists between sessions
 
@@ -169,11 +176,18 @@ PVSimulator/
 2. Open http://localhost:4200 in your browser
 3. Click "Start Simulation" to begin data generation
 4. Observe the real-time chart showing:
-   - **Blue line**: Household power consumption (random)
-   - **Orange line**: Solar panel production (time-based bell curve)
-   - **Green line**: Total power (sum of both)
+   - **Red line**: Household power consumption (random)
+   - **Blue line**: Solar panel production (time-based bell curve, peaks at solar noon)
+   - **Green line**: Net Power (calculation result)
+5. View current values in the info panel below the chart
 5. Click "Stop Simulation" to pause data generation
 6. Data is automatically saved and can be restarted anytime
+
+### Real-time Chart Display
+The application shows three data lines:
+- **Red line**: Household power consumption (random, 0.5-10.0 kW)
+- **Blue line**: Solar panel production (time-based bell curve, peaks at noon)
+- **Green line**: Net Power (calculated from consumption and production)
 
 ### Testing
 
@@ -338,26 +352,29 @@ curl http://localhost:5000/status
 ### Sample CSV Data
 ```csv
 timestamp,meter,pv,sum
-2025-07-29T11:30:15.123456,5.67,3.21,8.88
-2025-07-29T11:30:18.654321,4.32,3.18,7.50
-2025-07-29T11:30:21.789012,6.89,3.15,10.04
+2025-08-01T12:00:15.123456,5.67,7.21,-1.54
+2025-08-01T12:00:18.654321,4.32,7.18,-2.86
+2025-08-01T12:00:21.789012,6.89,7.15,-0.26
 ```
 
-## Technical Details
+**Note**: The `sum` field represents net power (PV production - meter consumption). Negative values indicate power consumption from the grid, positive values indicate excess power fed back to the grid.
+
+### Technical Details
 
 ### PV Profile
 The PV simulator generates a realistic bell curve with peak production at solar noon (12:00). The formula uses a Gaussian distribution:
 ```python
 pv = max(0, 8 * exp(-((hour - 12)²) / 18))
 ```
+This produces 0 kW at night, gradually increases to peak 8 kW at midday, then decreases symmetrically.
 
 ### Message Flow
 1. Meter thread generates random consumption values
 2. Values sent to RabbitMQ queue
-3. PV simulator consumes messages, calculates PV production
-4. Combined data written to CSV file
-5. Frontend polls API for latest data
-6. Chart updates in real-time
+3. PV simulator consumes messages, calculates time-based PV production
+4. Net power calculated (PV - consumption) and written to CSV file
+5. Frontend polls API for latest data every 2 seconds
+6. Chart and info panel update in real-time
 
 ### Docker Networking
 - All services run in isolated `pv-network`
@@ -367,17 +384,14 @@ pv = max(0, 8 * exp(-((hour - 12)²) / 18))
 
 ## Development Notes
 
-- **Modular Architecture**: Backend refactored into separate modules for better maintainability:
-  - `config.py`: Centralized configuration management
-  - `models.py`: Pydantic data validation models
-  - `utilities.py`: Pure functions for PV calculations and CSV operations
-  - `simulation_manager.py`: Business logic for simulation control
-  - `logging_config.py`: Structured logging setup
+- **Modular Architecture**: Backend refactored into separate modules for better maintainability
+- **Data Consistency**: Backend uses 'sum' field for net power calculation, frontend displays as "Net Power"
+- **Reliable UI**: Fixed double-click issue on Start Simulation button - now works with single click
+- **Real-time Solar Simulation**: PV production follows realistic bell curve peaking at solar noon
 - **Clean Code**: Separation of concerns with services, components, and clear API boundaries
 - **Comprehensive Testing**: Unit tests for both backend (pytest) and frontend (Jasmine/Karma)
 - **Type Safety**: TypeScript frontend and Pydantic backend models ensure type safety
 - **Error Handling**: Graceful error handling and user feedback throughout the application
-- **Responsive Design**: Mobile-friendly Angular interface with Chart.js visualization
 - **Production Ready**: Docker containers with health checks, proper configurations, and Nginx proxy
 
 ## Troubleshooting

@@ -341,7 +341,7 @@ def test_csv_file_creation_with_headers():
         assert os.path.exists(temp_file)
         with open(temp_file, 'r') as f:
             first_line = f.readline().strip()
-            assert first_line == 'timestamp,meter,pv,net'
+            assert first_line == 'timestamp,meter,pv,sum'
     
     # Clean up
     if os.path.exists(temp_file):
